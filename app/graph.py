@@ -1,14 +1,17 @@
 from typing import Annotated, TypedDict
+
 from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
 
 from app.config import get_llm
+from app.tools import TOOLS
 
 class State(TypedDict):
     # reducer `add_messages` ensures messages are appended and not overwritten
     messages: Annotated[list, add_messages] 
 
-llm = get_llm()
+llm = get_llm(tools=TOOLS)
 
 def chatbot(state: State):
     response = llm.invoke(state["messages"])
@@ -17,7 +20,11 @@ def chatbot(state: State):
 
 def build_graph():
     graph_builder = StateGraph(State)
+
     graph_builder.add_node("chatbot", chatbot)
+    graph_builder.add_node("tools", ToolNode(TOOLS))
+
     graph_builder.add_edge(START, "chatbot")
-    graph_builder.add_edge("chatbot", END)
+    graph_builder.add_conditional_edges("chatbot", tools_condition)
+    graph_builder.add_edge("tools", "chatbot")
     return graph_builder.compile()
