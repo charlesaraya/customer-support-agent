@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
 from langchain_core.messages import SystemMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from app.config import get_llm
 from app.tools import TOOLS
@@ -30,4 +31,6 @@ def build_graph():
     graph_builder.add_edge(START, "chatbot")
     graph_builder.add_conditional_edges("chatbot", tools_condition)
     graph_builder.add_edge("tools", "chatbot")
-    return graph_builder.compile(name="Customer Support Graph")
+
+    memory = MemorySaver()
+    return graph_builder.compile(name="Customer Support Graph", checkpointer=memory)
