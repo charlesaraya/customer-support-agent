@@ -1,0 +1,11 @@
+from sqlmodel import Session, select
+from ..models import Chat
+
+def create_chat(session: Session, chat: Chat):
+    session.add(chat)
+    session.commit()
+    session.refresh(chat)
+    return chat
+
+def get_chats_by_user(session: Session, user_id: str):
+    return session.exec(select(Chat).where(Chat.user_id == user_id)).all()
