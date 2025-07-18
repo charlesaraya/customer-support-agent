@@ -3,6 +3,7 @@ from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
+from langchain_core.messages import SystemMessage
 
 from app.config import get_llm
 from app.tools import TOOLS
@@ -13,8 +14,10 @@ class State(TypedDict):
 
 llm = get_llm(tools=TOOLS)
 
+sys_msg = SystemMessage(content="You are a helpful customer support assistant.")
+
 def chatbot(state: State):
-    response = llm.invoke(state["messages"])
+    response = llm.invoke([sys_msg] + state["messages"])
     # response.response_metadata (token_usage, finish_reason, etc.)
     return {"messages": [response]}
 
