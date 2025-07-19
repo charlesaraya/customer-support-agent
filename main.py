@@ -1,15 +1,11 @@
-from fastapi import FastAPI
-from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
 from langchain_core.messages import HumanMessage
 
 from app.graph import build_graph
-from app.routes import router
+from app.app import create_app
 
-app = FastAPI()
-app.include_router(router)
-app.add_middleware(SessionMiddleware, secret_key="super-secret")
+app = create_app()
 
 def graph_updates(graph, thread_id: str, user_input: str):
     config = {"configurable": {"thread_id": thread_id}}
