@@ -3,7 +3,7 @@ from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.config import get_llm
@@ -34,3 +34,10 @@ def build_graph():
 
     memory = MemorySaver()
     return graph_builder.compile(name="Customer Support Graph", checkpointer=memory)
+
+def graph_updates(graph, thread_id: str, user_input: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    messages = [HumanMessage(content=user_input)]
+    messages = graph.invoke({"messages": messages}, config)
+    # print("Assistant:", messages["messages"][-1].content)
+    return messages

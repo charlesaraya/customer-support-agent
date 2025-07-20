@@ -9,3 +9,6 @@ def create_chat(session: Session, chat: Chat):
 
 def get_chats_by_user(session: Session, user_id: str):
     return session.exec(select(Chat).where(Chat.user_id == user_id)).all()
+
+def get_chat_by_id(session: Session, id: str):
+    return session.exec(select(Chat).where(Chat.id == id)).first()

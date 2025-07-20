@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from sqlmodel import Session
 
 from app.database import db, models, queries
 from app.auth import hash_password, verify_password
+from app.graph import graph_updates
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -43,5 +44,65 @@ def login(request: Request, email: str = Form(), password: str = Form(), session
 @router.get("/chat")
 def chat_form(request: Request, session: Session = Depends(db.get_session)):
     user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login", status_code=401)
     user = queries.get_user_by_id(session, user_id)
-    return templates.TemplateResponse("chat.html", {"request": request, "user": user.name})
+    chats = queries.get_chats_by_user(session, user_id)
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "user": user,
+        "chats": chats,
+        "selected_chat": None,
+    })
+
+
+@router.post("/chat/new")
+def new_chat(request: Request, session: Session = Depends(db.get_session)):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login")
+
+    chat = models.Chat(user_id=user_id)
+    chat = queries.create_chat(session, chat)
+    return RedirectResponse(f"/chat/{chat.id}", status_code=302)
+
+
+@router.get("/chat/{chat_id}")
+def chat_page(request: Request, chat_id: str, session: Session = Depends(db.get_session)):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login", status_code=401)
+
+    user = queries.get_user_by_id(session, user_id)
+
+    chats = queries.get_chats_by_user(session, user_id)
+    selected_chat = queries.get_chat_by_id(session, chat_id)
+
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "user": user,
+        "chats": chats,
+        "selected_chat": selected_chat,
+    })
+
+
+@router.post("/chat/{chat_id}/send")
+async def send_message(request: Request, chat_id: str, message: str = Form(...)):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login", status_code=401)
+
+    # Access the graph instance stored in app state
+    graph = request.app.state.graph
+
+    # Process user message via LangGraph
+    messages = graph_updates(graph, thread_id=chat_id, user_input=message)
+
+    # Get assistant's reply (last message)
+    reply = messages["messages"][-1].content
+
+    return templates.TemplateResponse("partials/message.html", {
+        "request": request,
+        "user_message": message,
+        "ai_message": reply,
+    })
