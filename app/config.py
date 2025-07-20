@@ -18,3 +18,6 @@ def get_llm(tools: list):
     if tools:
      llm = llm.bind_tools(tools)
     return llm
+
+def get_agent_connection_string():
+   return os.environ.get("AGENT_STATE_DB_NAME")

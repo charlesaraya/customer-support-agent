@@ -2,6 +2,7 @@ langchain
 langgraph
 langchain-core
 langchain-openai
+langgraph-checkpoint-sqlite
 python-dotenv
 langsmith
 langgraph-cli[inmem]

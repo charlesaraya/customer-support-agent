@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from sqlmodel import Session
@@ -115,3 +115,16 @@ async def send_message(request: Request, chat_id: str, user_message: str = Form(
         "user_message": user_message,
         "ai_message": reply,
     })
+
+
+@router.delete("/chat/{chat_id}")
+def delete_chat(request: Request, chat_id: str, session: Session = Depends(db.get_session)):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login", status_code=401)
+
+    result = queries.delete_chat_by_id(session, chat_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    return HTMLResponse(content="", status_code=200)

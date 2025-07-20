@@ -12,14 +12,22 @@
     <h2>Your Chats</h2>
     <ul>
         {% for chat in chats %}
-        <li>
+        <li id="chat-{{ chat.id }}">
             <a href="/chat/{{ chat.id }}">{{ chat.title or chat.created_at.strftime('%Y-%m-%d %H:%M') }}</a>
+            | 
+            <a href="#"
+                hx-delete="/chat/{{ chat.id }}"
+                hx-target="#chat-{{ chat.id }}"
+                hx-swap="outerHTML"
+                hx-on::after-request="clearChatThread()">
+                delete
+            </a>
         </li>
         {% endfor %}
     </ul>
     {% if selected_chat %}
         <hr>
-        <h2>Chat: {{ selected_chat.id }}</h2>
+        <h2>Chat: <span id="chat-name">{{ selected_chat.id }}</span></h2>
         <!-- Chat messages UI -->
         <div id="chat-thread">
             {% for message in messages %}

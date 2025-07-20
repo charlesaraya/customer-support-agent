@@ -10,3 +10,10 @@ function addUserMessage(event) {
     chatThread.appendChild(userMessage);
     input.value = '';
 }
+
+function clearChatThread() {
+    const chatThread = document.getElementById('chat-thread');
+    chatThread.innerHTML = "";
+    const chatName = document.getElementById('chat-name');
+    chatName.innerHTML = "";
+}
