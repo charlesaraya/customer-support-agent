@@ -21,13 +21,23 @@
         <hr>
         <h2>Chat: {{ selected_chat.id }}</h2>
         <!-- Chat messages UI -->
-        <div id="chat-thread"></div>
+        <div id="chat-thread">
+            {% for message in messages %}
+            <p>
+                <strong>
+                    {% if message.role == "user" %}You:
+                    {% elif message.role == "ai" %}AI:
+                    {% endif %}
+                </strong> {{ message.content }}
+            </p>
+            {% endfor %}
+        </div>
         <!-- Chat input -->
         <form hx-post="/chat/{{ selected_chat.id }}/send"
             hx-target="#chat-thread"
             hx-swap="beforeend"
             hx-on::before-request="addUserMessage(event)">
-            <input id="chat-input" type="text" name="message" placeholder="Ask anything..." required autocomplete="off"/>
+            <input id="chat-input" type="text" name="user_message" placeholder="Ask anything..." required autocomplete="off"/>
             <button type="submit">Send</button>
         </form>
     {% endif %}

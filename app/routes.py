@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from sqlmodel import Session
@@ -78,31 +78,40 @@ def chat_page(request: Request, chat_id: str, session: Session = Depends(db.get_
     chats = queries.get_chats_by_user(session, user_id)
     selected_chat = queries.get_chat_by_id(session, chat_id)
 
+    chat_messages = queries.get_messages_by_chat_id(session, chat_id)
+
     return templates.TemplateResponse("chat.html", {
         "request": request,
         "user": user,
         "chats": chats,
         "selected_chat": selected_chat,
+        "messages": chat_messages,
     })
 
 
 @router.post("/chat/{chat_id}/send")
-async def send_message(request: Request, chat_id: str, message: str = Form(...)):
+async def send_message(request: Request, chat_id: str, user_message: str = Form(...), session: Session = Depends(db.get_session)):
     user_id = request.session.get("user_id")
     if not user_id:
         return RedirectResponse("/login", status_code=401)
+
+    human_message = models.Message(chat_id=chat_id, role='user', content=user_message)
+    _ = queries.create_chat(session, human_message)
 
     # Access the graph instance stored in app state
     graph = request.app.state.graph
 
     # Process user message via LangGraph
-    messages = graph_updates(graph, thread_id=chat_id, user_input=message)
+    messages = graph_updates(graph, thread_id=chat_id, user_input=user_message)
 
     # Get assistant's reply (last message)
     reply = messages["messages"][-1].content
 
+    ai_message = models.Message(chat_id=chat_id, role='ai', content=reply)
+    _ = queries.create_chat(session, ai_message)
+
     return templates.TemplateResponse("partials/message.html", {
         "request": request,
-        "user_message": message,
+        "user_message": user_message,
         "ai_message": reply,
     })
