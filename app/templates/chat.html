@@ -26,9 +26,8 @@
         <form hx-post="/chat/{{ selected_chat.id }}/send"
             hx-target="#chat-thread"
             hx-swap="beforeend"
-            hx-on::before-request="addUserMessage(event)"
-            hx-on::after-request="this.reset()">
-            <input id="chat-input" type="text" name="message" placeholder="Ask anything..." required/>
+            hx-on::before-request="addUserMessage(event)">
+            <input id="chat-input" type="text" name="message" placeholder="Ask anything..." required autocomplete="off"/>
             <button type="submit">Send</button>
         </form>
     {% endif %}

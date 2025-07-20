@@ -8,4 +8,5 @@ function addUserMessage(event) {
     const userMessage = document.createElement('p');
     userMessage.innerHTML = `<strong>You:</strong> ${message}`;
     chatThread.appendChild(userMessage);
+    input.value = '';
 }
