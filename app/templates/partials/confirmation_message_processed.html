@@ -1,0 +1,22 @@
+<p><strong>AI:</strong> {{ message.content }}</p>
+
+<!-- Adds the input+button back to the form — outside the swap target -->
+<form id="chat-form"
+    hx-swap-oob="true"
+    hx-post="/chat/{{ chat_id }}/send"
+    hx-target="#chat-thread"
+    hx-swap="beforeend"
+    hx-on::before-request="addUserMessage(event)">
+    <input id="chat-input" type="text" name="user_message" placeholder="Ask anything..." required autocomplete="off"/>
+    <button type="submit">Send</button>
+</form>
+
+<!-- swaps with the confirmation of the previous message -->
+<div id="confirmation-{{ message.id-2 }}" hx-swap-oob="true">
+    <strong>You:</strong> 
+    {% if confirmation == "accepted" %}
+        Confirmed ✅
+    {% elif confirmation == "rejected" %}
+        Rejected ❌
+    {% endif %}
+</div>

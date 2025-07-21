@@ -41,7 +41,8 @@
             {% endfor %}
         </div>
         <!-- Chat input -->
-        <form hx-post="/chat/{{ selected_chat.id }}/send"
+        <form id="chat-form"
+            hx-post="/chat/{{ selected_chat.id }}/send"
             hx-target="#chat-thread"
             hx-swap="beforeend"
             hx-on::before-request="addUserMessage(event)">

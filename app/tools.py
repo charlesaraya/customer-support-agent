@@ -18,4 +18,17 @@ def get_order_ETA(order_id: str) -> str:
     # TODO: real lookup
     return f"The order {order_id} will arrive tomorrow between 9am and 1pm."
 
-TOOLS = [get_order_status, cancel_order, get_order_ETA]
+def get_safe_tools():
+    return [get_order_status, get_order_ETA]
+
+def get_sensitive_tools():
+    return [cancel_order]
+
+def get_safe_tools_names():
+    return [tool.name for tool in get_safe_tools()]
+
+def get_sensitive_tools_names():
+    return [tool.name for tool in get_sensitive_tools()]
+
+def get_tools():
+    return [*get_safe_tools(), *get_sensitive_tools()]

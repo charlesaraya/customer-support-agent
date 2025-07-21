@@ -1,7 +1,8 @@
 from sqlmodel import Session, select
 from ..models import Message
 
-def create_message(session: Session, message: Message):
+def create_message(session: Session, chat_id: str, role: str, content:str) -> Message:
+    message = Message(chat_id=chat_id, role=role, content=content)
     session.add(message)
     session.commit()
     session.refresh(message)

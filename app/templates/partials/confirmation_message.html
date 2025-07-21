@@ -1,0 +1,14 @@
+<p><strong>AI:</strong> {{ message.content }}</p>
+<div id="confirmation-{{ message.id }}">
+    <form hx-post="/chat/{{ chat_id }}/send" 
+        hx-target="#chat-thread" 
+        hx-swap="beforeend">
+        <input type="hidden" name="user_message" value="{{ user_message }}">
+        <p>Do you want to confirm this action?</p>
+        <button type="submit" name="tool_confirmation" value="accepted">✅ Confirm</button>
+        <button type="submit" name="tool_confirmation" value="rejected">❌ Reject</button>
+    </form>
+</div>
+
+<!-- This disables the form — outside the swap target -->
+<form id="chat-form" hx-swap-oob="true"></form>

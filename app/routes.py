@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.database import db, models, queries
 from app.auth import hash_password, verify_password
-from app.graph import graph_updates
+from app.graph import graph_updates, graph_reject_tool_call, SENSITIVE_NODE
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -90,30 +90,66 @@ def chat_page(request: Request, chat_id: str, session: Session = Depends(db.get_
 
 
 @router.post("/chat/{chat_id}/send")
-async def send_message(request: Request, chat_id: str, user_message: str = Form(...), session: Session = Depends(db.get_session)):
+async def send_message(request: Request, chat_id: str, user_message: str = Form(...), tool_confirmation: str = Form(None), session: Session = Depends(db.get_session)):
     user_id = request.session.get("user_id")
     if not user_id:
         return RedirectResponse("/login", status_code=401)
 
-    human_message = models.Message(chat_id=chat_id, role='user', content=user_message)
-    _ = queries.create_chat(session, human_message)
-
     # Access the graph instance stored in app state
     graph = request.app.state.graph
 
-    # Process user message via LangGraph
+    # flow was interrupted by a sensitive tool
+    if tool_confirmation:
+        return _handle_tool_confirmation(request, chat_id, tool_confirmation, graph, session)
+
+    queries.create_message(session, chat_id=chat_id, role='user', content=user_message)
+
     messages = graph_updates(graph, thread_id=chat_id, user_input=user_message)
+
+     # Check for sensitive tool interruption
+    snapshot = graph.get_state({"configurable": {"thread_id": chat_id}})
+    if snapshot.next and snapshot.next[0] == SENSITIVE_NODE:
+        confirmation_prompt = "This action requires permission to use a sensitive tool. Do you wish to proceed?"
+        message = queries.create_message(session, chat_id=chat_id, role='ai', content=confirmation_prompt)
+
+        return templates.TemplateResponse("partials/confirmation_message.html", {
+            "request": request,
+            "chat_id": chat_id,
+            "message": message,
+        })
 
     # Get assistant's reply (last message)
     reply = messages["messages"][-1].content
 
-    ai_message = models.Message(chat_id=chat_id, role='ai', content=reply)
-    _ = queries.create_chat(session, ai_message)
+    queries.create_message(session, chat_id=chat_id, role='ai', content=reply)
 
     return templates.TemplateResponse("partials/message.html", {
         "request": request,
         "user_message": user_message,
         "ai_message": reply,
+    })
+
+def _handle_tool_confirmation(request, chat_id, tool_confirmation, graph, session):
+    match tool_confirmation:
+        case "accepted":
+            # continue the graph execution
+            messages = graph_updates(graph, thread_id=chat_id)
+            content = "Confirmed ✅"
+        case "rejected":
+            messages = graph_reject_tool_call(graph, thread_id=chat_id)
+            content = "Rejected ❌"
+        case _:
+            raise HTTPException(status_code=400, detail="invalid confirmation value")
+
+    message = queries.create_message(session, chat_id=chat_id, role='user', content=content)
+    reply = messages["messages"][-1].content
+    message = queries.create_message(session, chat_id=chat_id, role='ai', content=reply)
+
+    return templates.TemplateResponse("partials/confirmation_message_processed.html", {
+        "request": request,
+        "chat_id": chat_id,
+        "message": message,
+        "confirmation": tool_confirmation,
     })
 
 
