@@ -10,7 +10,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, An
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.config import get_llm
-from app.tools import get_tools, get_safe_tools, get_sensitive_tools, get_sensitive_tools_names
+from app.tools import get_tools, get_safe_tools, get_sensitive_tools, get_sensitive_tools_names, get_user_tools, get_user_info
 from app.config import get_agent_connection_string
 from app.prompts import ASSISTANT_SYSTEM_PROMPT
 
@@ -22,6 +22,10 @@ class State(TypedDict):
     user_info: str
 
 llm = get_llm(tools=get_tools())
+
+def user_info(state: State):
+    response = get_user_info.invoke(state)
+    return {"user_info": response}
 
 def chatbot(state: State):
     assistant_prompt = ChatPromptTemplate.from_messages([
@@ -47,11 +51,13 @@ def route_tools(state: State):
 def build_graph():
     graph_builder = StateGraph(State)
 
+    graph_builder.add_node("fetch_user_info", user_info)
     graph_builder.add_node("chatbot", chatbot)
     graph_builder.add_node("safe_tools", ToolNode(get_safe_tools()))
     graph_builder.add_node("sensitive_tools", ToolNode(get_sensitive_tools()))
 
-    graph_builder.add_edge(START, "chatbot")
+    graph_builder.add_edge(START, "fetch_user_info")
+    graph_builder.add_edge("fetch_user_info", "chatbot")
     graph_builder.add_conditional_edges("chatbot", route_tools, ["safe_tools", "sensitive_tools", END])
     graph_builder.add_edge("safe_tools", "chatbot")
     graph_builder.add_edge("sensitive_tools", "chatbot")
