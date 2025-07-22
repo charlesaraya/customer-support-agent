@@ -1,29 +1,35 @@
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, Optional
 
 import sqlite3
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AnyMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.config import get_llm
 from app.tools import get_tools, get_safe_tools, get_sensitive_tools, get_sensitive_tools_names
 from app.config import get_agent_connection_string
+from app.prompts import ASSISTANT_SYSTEM_PROMPT
 
 SENSITIVE_NODE = "sensitive_tools"
 
 class State(TypedDict):
     # reducer `add_messages` ensures messages are appended and not overwritten
-    messages: Annotated[list, add_messages] 
+    messages: Annotated[list[AnyMessage], add_messages]
+    user_info: str
 
 llm = get_llm(tools=get_tools())
 
-sys_msg = SystemMessage(content="You are a helpful customer support assistant.")
-
 def chatbot(state: State):
-    response = llm.invoke([sys_msg] + state["messages"])
+    assistant_prompt = ChatPromptTemplate.from_messages([
+        ("system", ASSISTANT_SYSTEM_PROMPT),
+        ("placeholder", "{messages}"),
+    ])
+    assistant_runnable = assistant_prompt | llm
+    response = assistant_runnable.invoke(state)
     # response.response_metadata (token_usage, finish_reason, etc.)
     return {"messages": [response]}
 
