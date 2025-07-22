@@ -1,7 +1,7 @@
 <p><strong>AI:</strong> {{ message.content }}</p>
 <div id="confirmation-{{ message.id }}">
     <form hx-post="/chat/{{ chat_id }}/send" 
-        hx-target="#chat-thread" 
+        hx-target="#chat-thread-{{ chat_id }}" 
         hx-swap="beforeend">
         <input type="hidden" name="user_message" value="{{ user_message }}">
         <p>Do you want to confirm this action?</p>
