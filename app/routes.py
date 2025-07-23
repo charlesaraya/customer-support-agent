@@ -108,7 +108,7 @@ async def send_message(request: Request, chat_id: str, user_message: str = Form(
 
      # Check for sensitive tool interruption
     snapshot = graph.get_state({"configurable": {"thread_id": chat_id}})
-    if snapshot.next and snapshot.next[0] == SENSITIVE_NODE:
+    if snapshot.next and SENSITIVE_NODE in snapshot.next[0]:
         confirmation_prompt = "This action requires permission to use a sensitive tool. Do you wish to proceed?"
         message = queries.create_message(session, chat_id=chat_id, role='ai', content=confirmation_prompt)
 

@@ -1,4 +1,4 @@
-from typing import Annotated, TypedDict, Optional
+from typing import Annotated, TypedDict, Optional, Literal, Callable
 
 import sqlite3
 
@@ -10,32 +10,133 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, An
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.config import get_llm
-from app.tools import get_tools, get_safe_tools, get_sensitive_tools, get_sensitive_tools_names, get_user_tools, get_user_info
+from app.tools import (
+    get_safe_tools,
+    get_sensitive_tools,
+    get_sensitive_tools_names,
+    get_user_info,
+    get_order_management_tools,
+    get_safe_order_management_tools,
+    get_sensitive_order_management_tools,
+    get_knowledge_base_tools,
+    get_safe_knowledge_base_tools,
+    get_sensitive_knowledge_base_tools,
+    CompleteOrEscalate,
+    ToOrderManagementAssistant,
+    ToKnowledgeBaseAssistant,
+    isCompleted,
+)
 from app.config import get_agent_connection_string
-from app.prompts import ASSISTANT_SYSTEM_PROMPT
+from app.prompts import SUPERVISOR_AGENT_SYSTEM_PROMPT, ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT, KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT
 
 SENSITIVE_NODE = "sensitive_tools"
 
+def update_dialog_stack(left: list[str], right: Optional[str]) -> list[str]:
+    """Push or pop the state."""
+    if right is None:
+        return left
+    if right == "pop":
+        return left[:-1]
+    return left + [right]
+
 class State(TypedDict):
-    # reducer `add_messages` ensures messages are appended and not overwritten
     messages: Annotated[list[AnyMessage], add_messages]
     user_info: str
-
-llm = get_llm(tools=get_tools())
+    dialog_state: Annotated[
+        list[
+            Literal[
+                "supervisor",
+                "order_management",
+                "knowledge_base",
+            ]
+        ],
+        update_dialog_stack,
+    ]
 
 def user_info(state: State):
     response = get_user_info.invoke(state)
     return {"user_info": response}
 
-def chatbot(state: State):
+supervisor_llm = get_llm(tools=[
+    ToOrderManagementAssistant,
+    ToKnowledgeBaseAssistant,
+])
+
+def supervisor(state: State):
     assistant_prompt = ChatPromptTemplate.from_messages([
-        ("system", ASSISTANT_SYSTEM_PROMPT),
+        ("system", SUPERVISOR_AGENT_SYSTEM_PROMPT),
         ("placeholder", "{messages}"),
     ])
-    assistant_runnable = assistant_prompt | llm
+    assistant_runnable = assistant_prompt | supervisor_llm
     response = assistant_runnable.invoke(state)
     # response.response_metadata (token_usage, finish_reason, etc.)
     return {"messages": [response]}
+
+order_management_llm = get_llm(tools=get_order_management_tools() + [CompleteOrEscalate])
+
+def order_management_assistant(state: State):
+    assistant_prompt = ChatPromptTemplate.from_messages([
+        ("system", ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT),
+        ("placeholder", "{messages}"),
+    ])
+    assistant_runnable = assistant_prompt | order_management_llm
+    response = assistant_runnable.invoke(state)
+    return {"messages": [response]}
+
+knowledge_base_llm = get_llm(tools=get_knowledge_base_tools() + [CompleteOrEscalate])
+
+def knowledge_base_assistant(state: State):
+    assistant_prompt = ChatPromptTemplate.from_messages([
+        ("system", KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT),
+        ("placeholder", "{messages}"),
+    ])
+    assistant_runnable = assistant_prompt | knowledge_base_llm
+    response = assistant_runnable.invoke(state)
+    return {"messages": [response]}
+
+def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
+    def entry_node(state: State) -> dict:
+        tool_call_id = state["messages"][-1].tool_calls[0]["id"]
+        return {
+            "messages": [
+                ToolMessage(
+                    content=f"""The assistant is now the {assistant_name}. 
+Reflect on the above conversation between the supervisor agent and the user.
+The user's intent is unsatisfied. Use the provided tools to assist the user.
+The task is not complete until you have successfully invoked the appropriate tool.
+If the user changes their mind, or needs help with other tasks, 
+call the 'CompleteOrEscalate' tool call to let the supervisor agent take control.
+Do not mention who you are - just act as a proxy assistant for the supervisor.
+Remember, you are {assistant_name}.
+""",
+                    tool_call_id=tool_call_id,
+                )
+            ],
+            "dialog_state": new_dialog_state,
+        }
+
+    return entry_node
+
+def pop_dialog_state(state: State) -> dict:
+    """Pop the dialog stack and return to the supervisor agent.
+
+    This lets the full graph explicitly track the dialog flow and delegate control
+    to specific sub-graphs.
+    """
+
+    messages = []
+    if state["messages"][-1].tool_calls:
+        # Note: Doesn't currently handle the edge case where the llm performs parallel tool calls
+        messages.append(
+            ToolMessage(
+                content="Resuming dialog with the supervisor agent. Please reflect on the past conversation and assist the user as needed.",
+                tool_call_id=state["messages"][-1].tool_calls[0]["id"],
+            )
+        )
+    return {
+        "dialog_state": "pop",
+        "messages": messages,
+    }
 
 def route_tools(state: State):
     next_node = tools_condition(state)
@@ -48,28 +149,119 @@ def route_tools(state: State):
         return "sensitive_tools"
     return "safe_tools"
 
+def route_order_management_tools(state: State):
+    next_node = tools_condition(state)
+    # No tools are invoked
+    if next_node == END:
+        return END
+    # Control flow should be passed back to the supervisor agent.
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tool_call["name"] == "CompleteOrEscalate" for tool_call in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+    # control flow should be passed to a tool.
+    sensitive_tools_names = [tool.name for tool in get_sensitive_order_management_tools()]
+    if any(tool_call["name"] in sensitive_tools_names for tool_call in tool_calls):
+        return "sensitive_tools_order_management"
+    return "safe_tools_order_management"
+
+def route_knowledge_base_tools(state: State):
+    next_node = tools_condition(state)
+    # No tools are invoked
+    if next_node == END:
+        return END
+    # Control flow should be passed back to the supervisor agent.
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tool_call["name"] == "CompleteOrEscalate" for tool_call in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+    # control flow should be passed to a tool.
+    sensitive_tools_names = [tool.name for tool in get_sensitive_order_management_tools()]
+    if any(tool_call["name"] in sensitive_tools_names for tool_call in tool_calls):
+        return "sensitive_tools_knowledge_base"
+    return "safe_tools_knowledge_base"
+
+def route_supervisor(state: State):
+    route = tools_condition(state)
+    # No tools are invoked
+    if route == END:
+        return END
+    tool_calls = state["messages"][-1].tool_calls
+    if tool_calls:
+        if tool_calls[0]["name"] == ToOrderManagementAssistant.__name__:
+            return "enter_order_management"
+        elif tool_calls[0]["name"] == ToKnowledgeBaseAssistant.__name__:
+            return "enter_knowledge_base"
+        raise ValueError("Unknown tool")
+    raise ValueError("Invalid route")
+
+# Each delegated workflow can directly respond to the user
+# When the user responds, we want to return to the currently active workflow
+def route_to_workflow(state: State) -> Literal["supervisor", "order_management", "knowledge_base"]:
+    """If we are in a delegated state, route directly to the appropriate assistant."""
+
+    dialog_state = state.get("dialog_state")
+    if not dialog_state:
+        return "supervisor"
+    return dialog_state[-1]
+
 def build_graph():
     graph_builder = StateGraph(State)
 
+    # Order Management Assistant
+    graph_builder.add_node("enter_order_management", create_entry_node("Order Management Assistant", "order_management"))
+    graph_builder.add_node("order_management", order_management_assistant)
+    graph_builder.add_edge("enter_order_management", "order_management")
+    graph_builder.add_node("safe_tools_order_management", ToolNode(get_safe_order_management_tools()))
+    graph_builder.add_node("sensitive_tools_order_management", ToolNode(get_sensitive_order_management_tools()))
+    graph_builder.add_edge("safe_tools_order_management", "order_management")
+    graph_builder.add_edge("sensitive_tools_order_management", "order_management")
+    graph_builder.add_conditional_edges(
+        "order_management",
+        route_order_management_tools,
+        ["safe_tools_order_management", "sensitive_tools_order_management", "order_management", "leave_skill", END]
+    )
+
+    # Knowledge Base Assistant
+    graph_builder.add_node("enter_knowledge_base", create_entry_node("Knowledge Base Assistant", "knowledge_base"))
+    graph_builder.add_node("knowledge_base", knowledge_base_assistant)
+    graph_builder.add_edge("enter_knowledge_base", "knowledge_base")
+    graph_builder.add_node("safe_tools_knowledge_base", ToolNode(get_safe_knowledge_base_tools()))
+    graph_builder.add_node("sensitive_tools_knowledge_base", ToolNode(get_sensitive_knowledge_base_tools()))
+    graph_builder.add_edge("safe_tools_knowledge_base", "knowledge_base")
+    graph_builder.add_edge("sensitive_tools_knowledge_base", "knowledge_base")
+    graph_builder.add_conditional_edges(
+        "knowledge_base",
+        route_knowledge_base_tools,
+        ["safe_tools_knowledge_base", "sensitive_tools_knowledge_base", "knowledge_base", "leave_skill", END]
+    )
+
+    graph_builder.add_node("leave_skill", pop_dialog_state)
+    graph_builder.add_edge("leave_skill", "supervisor")
+
+    # Supervisor Agent
     graph_builder.add_node("fetch_user_info", user_info)
-    graph_builder.add_node("chatbot", chatbot)
-    graph_builder.add_node("safe_tools", ToolNode(get_safe_tools()))
-    graph_builder.add_node("sensitive_tools", ToolNode(get_sensitive_tools()))
+    graph_builder.add_node("supervisor", supervisor)
+    graph_builder.add_conditional_edges(
+        "supervisor",
+        route_supervisor,
+        ["enter_order_management", "enter_knowledge_base", END],
+    )
 
     graph_builder.add_edge(START, "fetch_user_info")
-    graph_builder.add_edge("fetch_user_info", "chatbot")
-    graph_builder.add_conditional_edges("chatbot", route_tools, ["safe_tools", "sensitive_tools", END])
-    graph_builder.add_edge("safe_tools", "chatbot")
-    graph_builder.add_edge("sensitive_tools", "chatbot")
+    graph_builder.add_conditional_edges("fetch_user_info", route_to_workflow)
 
     db_string = get_agent_connection_string()
     conn = sqlite3.connect(db_string, check_same_thread=False)
     memory = SqliteSaver(conn)
 
     return graph_builder.compile(
-        name="Customer Support Graph",
-        checkpointer=memory,
-        interrupt_before=["sensitive_tools"],
+        name = "Customer Support Graph",
+        checkpointer = memory,
+        interrupt_before = [
+            "sensitive_tools_order_management",
+            "sensitive_tools_knowledge_base",
+        ],
     )
 
 def graph_updates(graph, thread_id: str, user_input: str | None = None):
