@@ -11,8 +11,6 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.config import get_llm
 from app.tools import (
-    get_safe_tools,
-    get_sensitive_tools,
     get_sensitive_tools_names,
     get_user_info,
     get_order_management_tools,
@@ -24,7 +22,6 @@ from app.tools import (
     CompleteOrEscalate,
     ToOrderManagementAssistant,
     ToKnowledgeBaseAssistant,
-    isCompleted,
 )
 from app.config import get_agent_connection_string
 from app.prompts import SUPERVISOR_AGENT_SYSTEM_PROMPT, ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT, KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT

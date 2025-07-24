@@ -1,7 +1,5 @@
 import uvicorn
 
-from langchain_core.messages import HumanMessage
-
 from app.graph import build_graph
 from app.app import create_app
 

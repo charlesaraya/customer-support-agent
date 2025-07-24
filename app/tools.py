@@ -195,13 +195,6 @@ class CompletionStatus(str, Enum):
     NEED_MORE_INFO = "need_more_info"
     OUT_OF_SCOPE = "out_of_scope"
 
-def isCompleted(status: CompletionStatus) -> bool:
-    try:
-        status_enum = CompletionStatus(status)
-    except ValueError:
-        raise ValueError(f"Invalid status: {status}")
-    return status_enum != CompletionStatus.NEED_MORE_INFO
-
 class CompleteOrEscalate(BaseModel):
     """Indicates that the control flow should be passed back to the supervisor agent.
 
