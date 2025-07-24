@@ -7,6 +7,8 @@ app = create_app()
 graph = build_graph()
 app.state.graph = graph
 
+import app.tools as tools
+
 def main():
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 

@@ -10,19 +10,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, An
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.config import get_llm
-from app.tools import (
-    get_sensitive_tools_names,
-    get_user_info,
-    get_order_management_tools,
-    get_safe_order_management_tools,
-    get_sensitive_order_management_tools,
-    get_knowledge_base_tools,
-    get_safe_knowledge_base_tools,
-    get_sensitive_knowledge_base_tools,
-    CompleteOrEscalate,
-    ToOrderManagementAssistant,
-    ToKnowledgeBaseAssistant,
-)
+import app.tools as tools
 from app.config import get_agent_connection_string
 from app.prompts import SUPERVISOR_AGENT_SYSTEM_PROMPT, ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT, KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT
 
@@ -51,12 +39,12 @@ class State(TypedDict):
     ]
 
 def user_info(state: State):
-    response = get_user_info.invoke(state)
+    response = tools.get_user_info.invoke(state)
     return {"user_info": response}
 
 supervisor_llm = get_llm(tools=[
-    ToOrderManagementAssistant,
-    ToKnowledgeBaseAssistant,
+    tools.ToOrderManagementAssistant,
+    tools.ToKnowledgeBaseAssistant,
 ])
 
 def supervisor(state: State):
@@ -69,7 +57,8 @@ def supervisor(state: State):
     # response.response_metadata (token_usage, finish_reason, etc.)
     return {"messages": [response]}
 
-order_management_llm = get_llm(tools=get_order_management_tools() + [CompleteOrEscalate])
+order_management_tools = tools.tools_registry.get_tools_by_tag("order_management")
+order_management_llm = get_llm(tools=order_management_tools + [tools.CompleteOrEscalate])
 
 def order_management_assistant(state: State):
     assistant_prompt = ChatPromptTemplate.from_messages([
@@ -80,7 +69,8 @@ def order_management_assistant(state: State):
     response = assistant_runnable.invoke(state)
     return {"messages": [response]}
 
-knowledge_base_llm = get_llm(tools=get_knowledge_base_tools() + [CompleteOrEscalate])
+knowledge_base_tools = tools.tools_registry.get_tools_by_tag("order_management")
+knowledge_base_llm = get_llm(tools=knowledge_base_tools + [tools.CompleteOrEscalate])
 
 def knowledge_base_assistant(state: State):
     assistant_prompt = ChatPromptTemplate.from_messages([
@@ -135,17 +125,6 @@ def pop_dialog_state(state: State) -> dict:
         "messages": messages,
     }
 
-def route_tools(state: State):
-    next_node = tools_condition(state)
-    # No tools are invoked
-    if next_node == END:
-        return END
-    ai_message = state["messages"][-1]
-    first_tool_call = ai_message.tool_calls[0]
-    if first_tool_call["name"] in get_sensitive_tools_names():
-        return "sensitive_tools"
-    return "safe_tools"
-
 def route_order_management_tools(state: State):
     next_node = tools_condition(state)
     # No tools are invoked
@@ -157,7 +136,8 @@ def route_order_management_tools(state: State):
     if did_cancel:
         return "leave_skill"
     # control flow should be passed to a tool.
-    sensitive_tools_names = [tool.name for tool in get_sensitive_order_management_tools()]
+    order_management_sensitive_tools = tools.tools_registry.get_tools_by_tags("order_management", "sensitive")
+    sensitive_tools_names = [tool.name for tool in order_management_sensitive_tools]
     if any(tool_call["name"] in sensitive_tools_names for tool_call in tool_calls):
         return "sensitive_tools_order_management"
     return "safe_tools_order_management"
@@ -173,7 +153,8 @@ def route_knowledge_base_tools(state: State):
     if did_cancel:
         return "leave_skill"
     # control flow should be passed to a tool.
-    sensitive_tools_names = [tool.name for tool in get_sensitive_order_management_tools()]
+    knowledge_base_sensitive_tools = tools.tools_registry.get_tools_by_tags("knowledge_base", "sensitive")
+    sensitive_tools_names = [tool.name for tool in knowledge_base_sensitive_tools]
     if any(tool_call["name"] in sensitive_tools_names for tool_call in tool_calls):
         return "sensitive_tools_knowledge_base"
     return "safe_tools_knowledge_base"
@@ -185,9 +166,9 @@ def route_supervisor(state: State):
         return END
     tool_calls = state["messages"][-1].tool_calls
     if tool_calls:
-        if tool_calls[0]["name"] == ToOrderManagementAssistant.__name__:
+        if tool_calls[0]["name"] == tools.ToOrderManagementAssistant.__name__:
             return "enter_order_management"
-        elif tool_calls[0]["name"] == ToKnowledgeBaseAssistant.__name__:
+        elif tool_calls[0]["name"] == tools.ToKnowledgeBaseAssistant.__name__:
             return "enter_knowledge_base"
         raise ValueError("Unknown tool")
     raise ValueError("Invalid route")
@@ -209,8 +190,13 @@ def build_graph():
     graph_builder.add_node("enter_order_management", create_entry_node("Order Management Assistant", "order_management"))
     graph_builder.add_node("order_management", order_management_assistant)
     graph_builder.add_edge("enter_order_management", "order_management")
-    graph_builder.add_node("safe_tools_order_management", ToolNode(get_safe_order_management_tools()))
-    graph_builder.add_node("sensitive_tools_order_management", ToolNode(get_sensitive_order_management_tools()))
+
+    order_management_safe_tools = tools.tools_registry.get_tools_by_tags("order_management", "safe")
+    graph_builder.add_node("safe_tools_order_management", ToolNode(order_management_safe_tools))
+
+    order_management_sensitive = tools.tools_registry.get_tools_by_tags("order_management", "sensitive")
+    graph_builder.add_node("sensitive_tools_order_management", ToolNode(order_management_sensitive))
+
     graph_builder.add_edge("safe_tools_order_management", "order_management")
     graph_builder.add_edge("sensitive_tools_order_management", "order_management")
     graph_builder.add_conditional_edges(
@@ -223,8 +209,13 @@ def build_graph():
     graph_builder.add_node("enter_knowledge_base", create_entry_node("Knowledge Base Assistant", "knowledge_base"))
     graph_builder.add_node("knowledge_base", knowledge_base_assistant)
     graph_builder.add_edge("enter_knowledge_base", "knowledge_base")
-    graph_builder.add_node("safe_tools_knowledge_base", ToolNode(get_safe_knowledge_base_tools()))
-    graph_builder.add_node("sensitive_tools_knowledge_base", ToolNode(get_sensitive_knowledge_base_tools()))
+
+    knowledge_base_safe_tools = tools.tools_registry.get_tools_by_tags("knowledge_base", "safe")
+    graph_builder.add_node("safe_tools_knowledge_base", ToolNode(knowledge_base_safe_tools))
+
+    knowledge_base_sensitive = tools.tools_registry.get_tools_by_tags("knowledge_base", "sensitive")
+    graph_builder.add_node("sensitive_tools_knowledge_base", ToolNode(knowledge_base_sensitive))
+
     graph_builder.add_edge("safe_tools_knowledge_base", "knowledge_base")
     graph_builder.add_edge("sensitive_tools_knowledge_base", "knowledge_base")
     graph_builder.add_conditional_edges(
