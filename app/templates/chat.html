@@ -8,7 +8,11 @@
     <form method="post" action="/chat/new">
         <button type="submit">Create New Chat</button>
     </form>
-
+    {% if google_credentials %}
+        <p>✅ Gmail connected</p>
+    {% else %}
+        <button hx-get="/auth/gmail">Connect Gmail</button>
+    {% endif %}
     <h2>Your Chats</h2>
     <ul>
         {% for chat in chats %}
