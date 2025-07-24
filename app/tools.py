@@ -1,10 +1,15 @@
 from enum import Enum
 from pydantic import BaseModel, Field
+import base64
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+
 from app.database import db, queries
+from app.caching import get_cached_gmail_token
 
 @tool
 def get_user_info(config: RunnableConfig) -> list[dict]:
@@ -85,7 +90,52 @@ def private_info_lookup(query: str) -> str:
     private_data = """Name: Emily Johnson\nEmail: emily.johnson87@examplemail.com\nPhone: +1-415-555-9473\nAddress: 2934 Winding Oak Drive, San Mateo, CA 94402\nSSN: 498-27-9310"""
     return f"Product specs result for '{query}': {private_data}"
 
+@tool
+def get_recent_emails(user_id: str):
+    """Look up the user's most recent emails."""
+    user_credentials = get_cached_gmail_token(user_id)
+    creds = Credentials.from_authorized_user_info(user_credentials)
+    service = build("gmail", "v1", credentials=creds)
+    results = service.users().messages().list(userId="me", maxResults=5).execute()
+    messages = results.get("messages", [])
+
+    emails = []
+    for msg in messages:
+        full = service.users().messages().get(userId="me", id=msg["id"]).execute()
+        snippet = full.get("snippet", "")
+        subject = next(
+            (h["value"] for h in full["payload"]["headers"] if h["name"].lower() == "subject"),
+            None
+        )
+        sender = next(
+            (h["value"] for h in full["payload"]["headers"] if h["name"].lower() == "from"),
+            None
+        )
+
+        body_data = extract_body(full["payload"])
+
+        emails.append({
+            "id": msg["id"],
+            "snippet": snippet,
+            "sender": sender,
+            "subject": subject,
+            "body": body_data,
+        })
+    return emails
+
 # Helper Functions
+
+def extract_body(payload):
+    if "parts" in payload:
+        for part in payload["parts"]:
+            if part.get("mimeType") in ["text/plain", "text/html"]:
+                data = part["body"].get("data")
+                if data:
+                    return base64.urlsafe_b64decode(data).decode("utf-8")
+            # Recursively check nested parts
+            if "parts" in part:
+                return extract_body(part)
+    return None
 
 def get_user_tools():
     return [get_user_info]
@@ -94,10 +144,10 @@ def get_order_management_tools():
     return [get_order_status, cancel_order, get_order_ETA, get_refund_status]
 
 def get_knowledge_base_tools():
-    return [faq_lookup, private_info_lookup]
+    return [faq_lookup, private_info_lookup, get_recent_emails]
 
 def get_safe_tools():
-    return [get_order_status, get_order_ETA, faq_lookup, get_refund_status]
+    return [get_order_status, get_order_ETA, faq_lookup, get_refund_status, get_recent_emails]
 
 def get_sensitive_tools():
     return [cancel_order, private_info_lookup]
@@ -189,7 +239,7 @@ class ToOrderManagementAssistant(BaseModel):
 
 
 class ToKnowledgeBaseAssistant(BaseModel):
-    """Transfers work to a specialized assistant to handle tasks that require accessing knowledge base."""
+    """Transfers work to a specialized assistant to handle tasks that require accessing knowledge base or answer user management queries."""
     request: str = Field(
         description="Any necessary followup questions the knowledge base assistant should clarify before proceeding."
     )

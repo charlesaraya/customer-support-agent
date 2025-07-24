@@ -21,3 +21,31 @@ def get_llm(tools: list):
 
 def get_agent_connection_string():
    return os.environ.get("AGENT_STATE_DB_NAME")
+
+def get_authorised_redirect_uris() -> list:
+   return ["http://localhost:8000/auth/callback"]
+
+OAUTHLIB_RELAX_TOKEN_SCOPE = os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE")
+
+def get_google_client_config():
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
+
+    return {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": get_authorised_redirect_uris(),
+        }
+    }
+
+def get_google_client_scopes() -> list:
+    return [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar",
+        "openid",
+        "email",
+        "profile",
+    ]

@@ -1,12 +1,19 @@
+from urllib.parse import urlencode
+from urllib.parse import urlparse, parse_qs
+
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+
+from google_auth_oauthlib.flow import Flow
 
 from sqlmodel import Session
 
 from app.database import db, models, queries
 from app.auth import hash_password, verify_password
 from app.graph import graph_updates, graph_reject_tool_call, SENSITIVE_NODE
+from app.config import get_google_client_config, get_google_client_scopes, get_authorised_redirect_uris
+from app.caching import cache_gmail_token, get_cached_gmail_token
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -53,6 +60,7 @@ def chat_form(request: Request, session: Session = Depends(db.get_session)):
         "user": user,
         "chats": chats,
         "selected_chat": None,
+        "google_credentials": bool(get_cached_gmail_token(user_id)),
     })
 
 
@@ -86,6 +94,7 @@ def chat_page(request: Request, chat_id: str, session: Session = Depends(db.get_
         "chats": chats,
         "selected_chat": selected_chat,
         "messages": chat_messages,
+        "google_credentials": bool(get_cached_gmail_token(user_id)),
     })
 
 
@@ -164,3 +173,51 @@ def delete_chat(request: Request, chat_id: str, session: Session = Depends(db.ge
         raise HTTPException(status_code=404, detail="Chat not found")
 
     return HTMLResponse(content="", status_code=200)
+
+@router.get("/auth/gmail")
+def auth_gmail(request: Request):
+    flow = Flow.from_client_config(get_google_client_config(), scopes=get_google_client_scopes())
+    flow.redirect_uri = get_authorised_redirect_uris()[0]
+
+    referer_url = urlparse(request.headers.get("referer"))
+
+    state_data = {"return_to": referer_url.path}
+    state_str = urlencode(state_data)
+
+    auth_url, _ = flow.authorization_url(
+        access_type = "offline",  # get refresh token
+        include_granted_scopes = "true",
+        prompt = "consent",  # always show consent screen
+        state=state_str,
+    )
+    #return RedirectResponse(auth_url)
+    return HTMLResponse(f"""<script>window.location.href = "{auth_url}";</script>""")
+
+
+@router.get("/auth/callback")
+def auth_callback(request: Request):
+    state = request.query_params.get("state")
+    code = request.query_params.get("code")
+
+    flow = Flow.from_client_config(get_google_client_config(), scopes=get_google_client_scopes())
+    flow.redirect_uri = get_authorised_redirect_uris()[0]
+    flow.fetch_token(code=code)
+
+    credentials = flow.credentials
+
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse("/login", status_code=401)
+    cache_gmail_token(user_id, {
+        "token": credentials.token,
+        "refresh_token": credentials.refresh_token,
+        "token_uri": credentials.token_uri,
+        "client_id": credentials.client_id,
+        "client_secret": credentials.client_secret,
+        "scopes": credentials.scopes,
+    }, credentials.expiry)
+
+    state_data = parse_qs(state)
+    return_to = state_data.get("return_to", ["/"])[0]
+
+    return RedirectResponse(return_to, status_code=302)
