@@ -252,16 +252,26 @@ def build_graph():
         ],
     )
 
-def graph_updates(graph, thread_id: str, user_input: str | None = None):
-    config = {"configurable": {"thread_id": thread_id}}
+def graph_updates(graph, thread_id: str, user_id: str, user_input: str | None = None):
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id,
+        }
+    }
     messages = None
     if user_input:
         messages = {"messages": [HumanMessage(content=user_input)]}
     messages = graph.invoke(messages, config)
     return messages
 
-def graph_reject_tool_call(graph, thread_id: str):
-    config = {"configurable": {"thread_id": thread_id}}
+def graph_reject_tool_call(graph, thread_id: str, user_id: str):
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id,
+        }
+    }
     snapshot = graph.get_state(config)
     tool_id = snapshot.values["messages"][-1].tool_calls[0]["id"]
     messages = {
