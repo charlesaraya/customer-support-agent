@@ -1,6 +1,7 @@
 import base64
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_store
 
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -18,11 +19,19 @@ def get_user_info(config: RunnableConfig) -> list[dict]:
         user_id = config.get("configurable").get("user_id")
         if not user_id:
             return ValueError("failed to retrieve user_id from configuration")
-        user = queries.get_user_by_id(session, user_id)
 
-        return f"<user_id>{user.id}</user_id><name>{user.name}</name><email>{user.email}</email>"
-    except:
-        return "unknown user"
+        # Retrieve existing memory from the store
+        namespace = ("memory", user_id)
+        store = get_store()
+        existing_memory = store.get(namespace, "user_memory")
+        # Extract the memory
+        if existing_memory:
+            existing_memory_content = existing_memory.value.get('memory')
+        else:
+            user = queries.get_user_by_id(session, user_id)
+            new_memory = f"The user's id is '{user.id}'. The user's name is {user.name}, with email: {user.email}"
+            # Write value as a dictionary with a memory key
+            store.put(namespace, "user_memory", {"memory": new_memory})
     finally:
         session.close()
 

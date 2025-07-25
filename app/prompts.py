@@ -12,9 +12,6 @@ Only the specialized assistants are given permission to do this for the user.
 
 When searching, be persistent. Expand your query bounds if the first search returns no results.
 If a search comes up empty, expand your search before giving up.
-
-Current user:
-<User>{user_info}</User>
 """
 
 ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT = """You are a helpful assistant specialized in order mangement tasks
@@ -27,9 +24,6 @@ If you need more information or the customer changes their mind, escalate the ta
 If the user needs help, or if they change their mind, or if you need more information and none of your tools are appropriate for it, 
 then escalate the task back to the supervisor agent using "CompleteOrEscalate" tool call.
 Do not waste the user's time. Do not make up invalid tools or functions.
-
-Current user:
-<User>{user_info}</User>
 """
 
 KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT = """You are a helpful assistant specialized in knowledge base-related tasks
@@ -42,7 +36,4 @@ If you need more information or the customer changes their mind, escalate the ta
 If the user needs help, or if they change their mind, or if you need more information and none of your tools are appropriate for it, 
 then escalate the task back to the supervisor agent using "CompleteOrEscalate" tool call.
 Do not waste the user's time. Do not make up invalid tools or functions.
-
-Current user:
-<User>{user_info}</User>
 """

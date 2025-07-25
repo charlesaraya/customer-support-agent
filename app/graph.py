@@ -8,6 +8,8 @@ from langgraph.graph.message import add_messages
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AnyMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.store.memory import InMemoryStore
+from langchain_core.runnables import RunnableConfig
 
 from app.config import get_llm
 import app.tools as tools
@@ -26,7 +28,6 @@ def update_dialog_stack(left: list[str], right: Optional[str]) -> list[str]:
 
 class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
-    user_info: str
     dialog_state: Annotated[
         list[
             Literal[
@@ -38,9 +39,8 @@ class State(TypedDict):
         update_dialog_stack,
     ]
 
-def user_info(state: State):
-    response = tools.get_user_info.invoke(state)
-    return {"user_info": response}
+def user_info(state: State, config: RunnableConfig):
+    tools.get_user_info.invoke(state)
 
 supervisor_llm = get_llm(tools=[
     tools.ToOrderManagementAssistant,
@@ -243,9 +243,13 @@ def build_graph():
     conn = sqlite3.connect(db_string, check_same_thread=False)
     memory = SqliteSaver(conn)
 
+    # Long-term (cross-thread) memory
+    in_memory_store = InMemoryStore()
+
     return graph_builder.compile(
         name = "Customer Support Graph",
         checkpointer = memory,
+        store = in_memory_store,
         interrupt_before = [
             "sensitive_tools_order_management",
             "sensitive_tools_knowledge_base",
