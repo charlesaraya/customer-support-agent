@@ -9,7 +9,7 @@ from app.database import db, queries
 from app.caching import get_cached_gmail_token
 from .tools_registry import tagged_tool
 
-@tagged_tool("user_managemenr", "safe")
+@tagged_tool("user_management", "safe")
 def get_user_info(config: RunnableConfig) -> list[dict]:
     """Fetch user information."""
     configuration = config.get("configurable", {})
@@ -37,7 +37,7 @@ def get_user_info(config: RunnableConfig) -> list[dict]:
         session.close()
 
 
-@tagged_tool("user_managemenr", "safe")
+@tagged_tool("user_management", "safe")
 def get_recent_emails(user_id: str):
     """Look up the user's most recent emails."""
     user_credentials = get_cached_gmail_token(user_id)
