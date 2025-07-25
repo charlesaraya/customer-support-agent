@@ -109,11 +109,11 @@ async def send_message(request: Request, chat_id: str, user_message: str = Form(
 
     # flow was interrupted by a sensitive tool
     if tool_confirmation:
-        return _handle_tool_confirmation(request, chat_id, tool_confirmation, graph, session)
+        return _handle_tool_confirmation(request, chat_id, user_id, tool_confirmation, graph, session)
 
     queries.create_message(session, chat_id=chat_id, role='user', content=user_message)
 
-    messages = graph_updates(graph, thread_id=chat_id, user_input=user_message)
+    messages = graph_updates(graph, thread_id=chat_id, user_id=user_id, user_input=user_message)
 
      # Check for sensitive tool interruption
     snapshot = graph.get_state({"configurable": {"thread_id": chat_id}})
@@ -138,11 +138,11 @@ async def send_message(request: Request, chat_id: str, user_message: str = Form(
         "ai_message": reply,
     })
 
-def _handle_tool_confirmation(request, chat_id, tool_confirmation, graph, session):
+def _handle_tool_confirmation(request, chat_id, user_id, tool_confirmation, graph, session):
     match tool_confirmation:
         case "accepted":
             # continue the graph execution
-            messages = graph_updates(graph, thread_id=chat_id)
+            messages = graph_updates(graph, thread_id=chat_id, user_id=user_id)
             content = "Confirmed ✅"
         case "rejected":
             messages = graph_reject_tool_call(graph, thread_id=chat_id)

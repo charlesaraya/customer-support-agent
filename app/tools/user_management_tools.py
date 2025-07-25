@@ -12,27 +12,17 @@ from .tools_registry import tagged_tool
 @tagged_tool("user_management", "safe")
 def get_user_info(config: RunnableConfig) -> list[dict]:
     """Fetch user information."""
-    configuration = config.get("configurable", {})
-    chat_id = configuration.get("thread_id", None)
-    if not chat_id:
-        raise ValueError("No chat ID configured.")
 
     session = next(db.get_session())
     try:
-        chat = queries.get_chat_by_id(session, chat_id)
-        user = queries.get_user_by_id(session, chat.user_id)
+        user_id = config.get("configurable").get("user_id")
+        if not user_id:
+            return ValueError("failed to retrieve user_id from configuration")
+        user = queries.get_user_by_id(session, user_id)
 
-        return {
-            "id": {user.id},
-            "name": {user.name},
-            "email": {user.email}
-        }
+        return f"<user_id>{user.id}</user_id><name>{user.name}</name><email>{user.email}</email>"
     except:
-        return {
-            "id": "unknown",
-            "name": "unknown",
-            "email": "unknown",
-        }
+        return "unknown user"
     finally:
         session.close()
 
