@@ -186,10 +186,13 @@ def route_to_workflow(state: State) -> Literal["supervisor", "order_management",
 def build_graph():
     graph_builder = StateGraph(State)
 
-    # Order Management Assistant
+    # Nodes
+    graph_builder.add_node("fetch_user_info", user_info)
+    graph_builder.add_node("supervisor", supervisor)
+
+    # Order Management Assistant Nodes
     graph_builder.add_node("enter_order_management", create_entry_node("Order Management Assistant", "order_management"))
     graph_builder.add_node("order_management", order_management_assistant)
-    graph_builder.add_edge("enter_order_management", "order_management")
 
     order_management_safe_tools = tools.tools_registry.get_tools_by_tags("order_management", "safe")
     graph_builder.add_node("safe_tools_order_management", ToolNode(order_management_safe_tools))
@@ -197,18 +200,9 @@ def build_graph():
     order_management_sensitive = tools.tools_registry.get_tools_by_tags("order_management", "sensitive")
     graph_builder.add_node("sensitive_tools_order_management", ToolNode(order_management_sensitive))
 
-    graph_builder.add_edge("safe_tools_order_management", "order_management")
-    graph_builder.add_edge("sensitive_tools_order_management", "order_management")
-    graph_builder.add_conditional_edges(
-        "order_management",
-        route_order_management_tools,
-        ["safe_tools_order_management", "sensitive_tools_order_management", "order_management", "leave_skill", END]
-    )
-
-    # Knowledge Base Assistant
+    # Knowledge Base Assistant Nodes
     graph_builder.add_node("enter_knowledge_base", create_entry_node("Knowledge Base Assistant", "knowledge_base"))
     graph_builder.add_node("knowledge_base", knowledge_base_assistant)
-    graph_builder.add_edge("enter_knowledge_base", "knowledge_base")
 
     knowledge_base_safe_tools = tools.tools_registry.get_tools_by_tags("knowledge_base", "safe")
     graph_builder.add_node("safe_tools_knowledge_base", ToolNode(knowledge_base_safe_tools))
@@ -216,29 +210,39 @@ def build_graph():
     knowledge_base_sensitive = tools.tools_registry.get_tools_by_tags("knowledge_base", "sensitive")
     graph_builder.add_node("sensitive_tools_knowledge_base", ToolNode(knowledge_base_sensitive))
 
-    graph_builder.add_edge("safe_tools_knowledge_base", "knowledge_base")
-    graph_builder.add_edge("sensitive_tools_knowledge_base", "knowledge_base")
-    graph_builder.add_conditional_edges(
-        "knowledge_base",
-        route_knowledge_base_tools,
-        ["safe_tools_knowledge_base", "sensitive_tools_knowledge_base", "knowledge_base", "leave_skill", END]
-    )
-
     graph_builder.add_node("leave_skill", pop_dialog_state)
-    graph_builder.add_edge("leave_skill", "supervisor")
 
-    # Supervisor Agent
-    graph_builder.add_node("fetch_user_info", user_info)
-    graph_builder.add_node("supervisor", supervisor)
+    # Edges
+    graph_builder.add_edge(START, "fetch_user_info")
+    graph_builder.add_conditional_edges("fetch_user_info", route_to_workflow)
+
     graph_builder.add_conditional_edges(
         "supervisor",
         route_supervisor,
         ["enter_order_management", "enter_knowledge_base", END],
     )
+    graph_builder.add_edge("enter_order_management", "order_management")
+    graph_builder.add_edge("enter_knowledge_base", "knowledge_base")
 
-    graph_builder.add_edge(START, "fetch_user_info")
-    graph_builder.add_conditional_edges("fetch_user_info", route_to_workflow)
+    graph_builder.add_conditional_edges(
+        "order_management",
+        route_order_management_tools,
+        ["safe_tools_order_management", "sensitive_tools_order_management", "order_management", "leave_skill", END]
+    )
+    graph_builder.add_edge("safe_tools_order_management", "order_management")
+    graph_builder.add_edge("sensitive_tools_order_management", "order_management")
 
+    graph_builder.add_conditional_edges(
+        "knowledge_base",
+        route_knowledge_base_tools,
+        ["safe_tools_knowledge_base", "sensitive_tools_knowledge_base", "knowledge_base", "leave_skill", END]
+    )
+    graph_builder.add_edge("safe_tools_knowledge_base", "knowledge_base")
+    graph_builder.add_edge("sensitive_tools_knowledge_base", "knowledge_base")
+
+    graph_builder.add_edge("leave_skill", "supervisor")
+
+    # Short-term (within-thread) memory
     db_string = get_agent_connection_string()
     conn = sqlite3.connect(db_string, check_same_thread=False)
     memory = SqliteSaver(conn)
