@@ -44,9 +44,16 @@ class ToOrderManagementAssistant(BaseModel):
 
 
 class ToKnowledgeBaseAssistant(BaseModel):
-    """Transfers work to a specialized assistant to handle tasks that require accessing knowledge base or answer user management queries."""
+    """Transfers work to a specialized assistant to handle tasks that require accessing internal knowledge base of the company."""
     request: str = Field(
         description="Any necessary followup questions the knowledge base assistant should clarify before proceeding."
     )
 
-__all__ = ["CompleteOrEscalate", "ToOrderManagementAssistant", "ToKnowledgeBaseAssistant"] 
+
+class ToUserManagementAssistant(BaseModel):
+    """Transfers work to a specialized assistant to handle tasks that require accessing the user's email and calendar tools."""
+    request: str = Field(
+        description="Any necessary followup questions the knowledge base assistant should clarify before proceeding."
+    )
+
+__all__ = ["CompleteOrEscalate", "ToOrderManagementAssistant", "ToKnowledgeBaseAssistant", "ToUserManagementAssistant"] 

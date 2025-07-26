@@ -1,12 +1,12 @@
-from typing import Annotated, TypedDict, Optional, Literal, Callable
+from typing import Optional, Literal, Callable
 
 import sqlite3
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.graph.message import add_messages
+
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AnyMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
@@ -14,37 +14,24 @@ from langchain_core.runnables import RunnableConfig
 from app.config import get_llm
 import app.tools as tools
 from app.config import get_agent_connection_string
-from app.prompts import SUPERVISOR_AGENT_SYSTEM_PROMPT, ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT, KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT
+from app.prompts import (
+    SUPERVISOR_AGENT_SYSTEM_PROMPT,
+    ORDER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT,
+    KNOWLEDGE_BASE_ASSISTANT_SYSTEM_PROMPT,
+    USER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT,
+)
+from app.state import State
 
 SENSITIVE_NODE = "sensitive_tools"
 
-def update_dialog_stack(left: list[str], right: Optional[str]) -> list[str]:
-    """Push or pop the state."""
-    if right is None:
-        return left
-    if right == "pop":
-        return left[:-1]
-    return left + [right]
-
-class State(TypedDict):
-    messages: Annotated[list[AnyMessage], add_messages]
-    dialog_state: Annotated[
-        list[
-            Literal[
-                "supervisor",
-                "order_management",
-                "knowledge_base",
-            ]
-        ],
-        update_dialog_stack,
-    ]
-
 def user_info(state: State, config: RunnableConfig):
-    tools.get_user_info.invoke(state)
+    user_profile = tools.get_user_info.invoke(state)
+    return user_profile
 
 supervisor_llm = get_llm(tools=[
     tools.ToOrderManagementAssistant,
     tools.ToKnowledgeBaseAssistant,
+    tools.ToUserManagementAssistant,
 ])
 
 def supervisor(state: State):
@@ -78,6 +65,18 @@ def knowledge_base_assistant(state: State):
         ("placeholder", "{messages}"),
     ])
     assistant_runnable = assistant_prompt | knowledge_base_llm
+    response = assistant_runnable.invoke(state)
+    return {"messages": [response]}
+
+user_management_tools = tools.tools_registry.get_tools_by_tag("user_management")
+user_management_llm = get_llm(tools=user_management_tools + [tools.CompleteOrEscalate])
+
+def user_management_assistant(state: State):
+    assistant_prompt = ChatPromptTemplate.from_messages([
+        ("system", USER_MANAGEMENT_ASSISTANT_SYSTEM_PROMPT),
+        ("placeholder", "{messages}"),
+    ])
+    assistant_runnable = assistant_prompt | user_management_llm
     response = assistant_runnable.invoke(state)
     return {"messages": [response]}
 
@@ -159,6 +158,23 @@ def route_knowledge_base_tools(state: State):
         return "sensitive_tools_knowledge_base"
     return "safe_tools_knowledge_base"
 
+def route_user_management_tools(state: State):
+    next_node = tools_condition(state)
+    # No tools are invoked
+    if next_node == END:
+        return END
+    # Control flow should be passed back to the supervisor agent.
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tool_call["name"] == "CompleteOrEscalate" for tool_call in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+    # control flow should be passed to a tool.
+    user_management_sensitive_tools = tools.tools_registry.get_tools_by_tags("user_management", "sensitive")
+    sensitive_tools_names = [tool.name for tool in user_management_sensitive_tools]
+    if any(tool_call["name"] in sensitive_tools_names for tool_call in tool_calls):
+        return "sensitive_tools_user_management"
+    return "safe_tools_user_management"
+
 def route_supervisor(state: State):
     route = tools_condition(state)
     # No tools are invoked
@@ -170,12 +186,14 @@ def route_supervisor(state: State):
             return "enter_order_management"
         elif tool_calls[0]["name"] == tools.ToKnowledgeBaseAssistant.__name__:
             return "enter_knowledge_base"
+        elif tool_calls[0]["name"] == tools.ToUserManagementAssistant.__name__:
+            return "enter_user_management"
         raise ValueError("Unknown tool")
     raise ValueError("Invalid route")
 
 # Each delegated workflow can directly respond to the user
 # When the user responds, we want to return to the currently active workflow
-def route_to_workflow(state: State) -> Literal["supervisor", "order_management", "knowledge_base"]:
+def route_to_workflow(state: State) -> Literal["supervisor", "order_management", "knowledge_base", "user_management"]:
     """If we are in a delegated state, route directly to the appropriate assistant."""
 
     dialog_state = state.get("dialog_state")
@@ -210,6 +228,16 @@ def build_graph():
     knowledge_base_sensitive = tools.tools_registry.get_tools_by_tags("knowledge_base", "sensitive")
     graph_builder.add_node("sensitive_tools_knowledge_base", ToolNode(knowledge_base_sensitive))
 
+    # User Management Assistant Nodes
+    graph_builder.add_node("enter_user_management", create_entry_node("User Management Assistant", "user_management"))
+    graph_builder.add_node("user_management", user_management_assistant)
+
+    user_management_safe_tools = tools.tools_registry.get_tools_by_tags("user_management", "safe")
+    graph_builder.add_node("safe_tools_user_management", ToolNode(user_management_safe_tools))
+
+    user_management_sensitive = tools.tools_registry.get_tools_by_tags("user_management", "sensitive")
+    graph_builder.add_node("sensitive_tools_user_management", ToolNode(user_management_sensitive))
+
     graph_builder.add_node("leave_skill", pop_dialog_state)
 
     # Edges
@@ -219,10 +247,11 @@ def build_graph():
     graph_builder.add_conditional_edges(
         "supervisor",
         route_supervisor,
-        ["enter_order_management", "enter_knowledge_base", END],
+        ["enter_order_management", "enter_knowledge_base", "enter_user_management", END],
     )
     graph_builder.add_edge("enter_order_management", "order_management")
     graph_builder.add_edge("enter_knowledge_base", "knowledge_base")
+    graph_builder.add_edge("enter_user_management", "user_management")
 
     graph_builder.add_conditional_edges(
         "order_management",
@@ -239,6 +268,14 @@ def build_graph():
     )
     graph_builder.add_edge("safe_tools_knowledge_base", "knowledge_base")
     graph_builder.add_edge("sensitive_tools_knowledge_base", "knowledge_base")
+
+    graph_builder.add_conditional_edges(
+        "user_management",
+        route_user_management_tools,
+        ["safe_tools_user_management", "sensitive_tools_user_management", "user_management", "leave_skill", END]
+    )
+    graph_builder.add_edge("safe_tools_user_management", "user_management")
+    graph_builder.add_edge("sensitive_tools_user_management", "user_management")
 
     graph_builder.add_edge("leave_skill", "supervisor")
 
@@ -257,6 +294,7 @@ def build_graph():
         interrupt_before = [
             "sensitive_tools_order_management",
             "sensitive_tools_knowledge_base",
+            "sensitive_tools_user_management",
         ],
     )
 

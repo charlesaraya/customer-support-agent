@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from app.database import db, queries
 from app.caching import get_cached_gmail_token
 from .tools_registry import tagged_tool
+from app.state import UserProfile
 
 @tagged_tool("user_management", "safe")
 def get_user_info(config: RunnableConfig) -> list[dict]:
@@ -21,17 +22,24 @@ def get_user_info(config: RunnableConfig) -> list[dict]:
             return ValueError("failed to retrieve user_id from configuration")
 
         # Retrieve existing memory from the store
-        namespace = ("memory", user_id)
+        namespace = ("user_profile", user_id)
         store = get_store()
         existing_memory = store.get(namespace, "user_memory")
         # Extract the memory
         if existing_memory:
-            existing_memory_content = existing_memory.value.get('memory')
+            existing_memory.value.get("user_profile")
+            user_profile = existing_memory.dict()["value"]
+            return user_profile
         else:
             user = queries.get_user_by_id(session, user_id)
-            new_memory = f"The user's id is '{user.id}'. The user's name is {user.name}, with email: {user.email}"
+            user_profile: UserProfile = {
+                "user_id": user_id,
+                "name": user.name,
+                "email": user.email,
+            }
             # Write value as a dictionary with a memory key
-            store.put(namespace, "user_memory", {"memory": new_memory})
+            store.put(namespace, "user_memory", {"user_profile": user_profile})
+            return {"user_profile": user_profile}
     finally:
         session.close()
 
