@@ -1,3 +1,5 @@
+from typing import Optional, Literal, Callable
+
 import sqlite3
 
 from langgraph.graph import StateGraph, START, END
@@ -45,17 +47,23 @@ def pop_dialog_state(state: State) -> dict:
 def build_graph():
     graph_builder = StateGraph(State)
 
+    supervisor_registry = registry.get_supervisor()
+    assistant_registry = registry.get_assistants()
+
     # Nodes
     graph_builder.add_node("fetch_user_info", user_info)
     graph_builder.add_edge(START, "fetch_user_info")
-    graph_builder.add_conditional_edges("fetch_user_info", factory.route_to_workflow)
+    graph_builder.add_conditional_edges(
+        "fetch_user_info",
+        factory.route_to_workflow,
+        [name for name in assistant_registry] + [supervisor_registry["name"]]
+    )
 
     # Supervisor node
     supervisor = factory.create_supervisor(registry.SUPERVISOR["system_prompt"], registry.SUPERVISOR["tools"])
     graph_builder.add_node(registry.SUPERVISOR["name"], factory.create_node(supervisor))
 
     # Assistant nodes
-    assistant_registry = registry.get_registry()
     interrupt_before_node = []
     for assistant_name, cfg in assistant_registry.items():
         # Entry Nodes
@@ -100,14 +108,13 @@ def build_graph():
     graph_builder.add_node("leave_skill", pop_dialog_state)
 
     # Conditional edge from supervisor to all entry nodes + END
-    supervisor = registry.get_supervisor()
     graph_builder.add_conditional_edges(
-        supervisor["name"],
+        supervisor_registry["name"],
         factory.route_supervisor,
         [f"enter_{name}" for name in assistant_registry] + [END],
     )
 
-    graph_builder.add_edge("leave_skill", supervisor["name"])
+    graph_builder.add_edge("leave_skill", supervisor_registry["name"])
 
     # Short-term (within-thread) memory
     db_string = get_agent_connection_string()

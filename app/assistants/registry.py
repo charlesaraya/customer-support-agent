@@ -41,5 +41,5 @@ ASSISTANT_REGISTRY = {
     },
 }
 
-def get_registry() -> dict:
+def get_assistants() -> dict:
     return ASSISTANT_REGISTRY

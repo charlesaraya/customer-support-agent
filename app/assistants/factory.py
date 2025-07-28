@@ -9,7 +9,7 @@ from langgraph.graph import END
 from app.tools import tools_registry, CompleteOrEscalate
 from app.config import get_llm
 from app.state import State
-from app.assistants.registry import get_registry, get_supervisor
+from app.assistants.registry import get_assistants, get_supervisor
 
 def create_supervisor(system_prompt: str, tools: list) -> Runnable:
     """Creates the supervisor LLM chain using a system prompt and a fixed list of tools."""
@@ -76,7 +76,7 @@ def route_to_workflow(state: State) -> str:
 
     # Validate against known assistant names
     last_assistant = dialog_state[-1]
-    valid_assistants = list(get_registry().keys()) + supervisor["name"]
+    valid_assistants = list(get_assistants().keys()) + supervisor["name"]
     if last_assistant not in valid_assistants:
         # gracefully return to supervisor
         return supervisor["name"]
@@ -89,7 +89,7 @@ def route_supervisor(state: State):
         return END
     tool_calls = state["messages"][-1].tool_calls
     if tool_calls:
-        assistant_registry = get_registry()
+        assistant_registry = get_assistants()
         for assistant_name, cfg in assistant_registry.items():
             if tool_calls[0]["name"] == cfg["entry_tool"].__name__:
                 return f"enter_{assistant_name}"
