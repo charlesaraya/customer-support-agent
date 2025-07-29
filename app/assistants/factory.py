@@ -22,8 +22,10 @@ def create_supervisor(system_prompt: str, tools: list) -> Runnable:
     return chain
 
 def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
-    """Handoff between the supervisor and one of the delegated workflows
-    so that the assistant is clear about the current scope."""
+    """Handoff between the supervisor and a delegated assistant.
+
+    The goal is to make sure that the assistant is clear about the current scope.
+    """
     def entry_node(state: State) -> dict:
         tool_call_id = state["messages"][-1].tool_calls[0]["id"]
         return {
