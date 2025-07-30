@@ -9,6 +9,7 @@ langgraph-cli[inmem]
 sqlmodel
 fastapi
 jinja2
+markdown
 python-multipart
 passlib[bcrypt]
 starlette

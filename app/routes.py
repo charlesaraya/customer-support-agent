@@ -4,6 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+import markdown as md
 
 from google_auth_oauthlib.flow import Flow
 
@@ -128,14 +129,14 @@ async def send_message(request: Request, chat_id: str, user_message: str = Form(
         })
 
     # Get assistant's reply (last message)
-    reply = messages["messages"][-1].content
-
-    queries.create_message(session, chat_id=chat_id, role='ai', content=reply)
+    raw_reply = messages["messages"][-1].content
+    queries.create_message(session, chat_id=chat_id, role='ai', content=raw_reply)
+    html_reply = md.markdown(text=raw_reply).replace('\n', '')
 
     return templates.TemplateResponse("partials/message.html", {
         "request": request,
         "user_message": user_message,
-        "ai_message": reply,
+        "ai_message": html_reply,
     })
 
 def _handle_tool_confirmation(request, chat_id, user_id, tool_confirmation, graph, session):
